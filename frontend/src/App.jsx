@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import SessionTimeoutModal from "./components/SessionTimeoutModal";
 import OnboardingModal from "./components/OnboardingModal";
+import InstallPrompt from "./components/InstallPrompt";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
@@ -12,6 +13,7 @@ import Forecasting from "./pages/Forecasting";
 import Notifications from "./pages/Notifications";
 import Chat from "./pages/Chat";
 import Settings from "./pages/Settings";
+import TaxReport from "./pages/TaxReport";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 
@@ -99,6 +101,7 @@ const NAV_LINKS = [
   { to: "/transactions", label: "Transactions" },
   { to: "/invoices", label: "Invoices" },
   { to: "/forecasting", label: "Forecast" },
+  { to: "/tax", label: "Tax Report" },
   { to: "/chat", label: "Ask AI" },
   { to: "/notifications", label: "Notifications" },
   { to: "/settings", label: "Settings" },
@@ -175,6 +178,7 @@ function Layout({ children }) {
       <SessionTimeoutModal isOpen={showWarning} countdown={countdown} onStayIn={handleStayLoggedIn} onLogout={logout} />
       <OnboardingModal />
       <KeyboardShortcuts />
+      <InstallPrompt />
     </div>
   );
 }
@@ -201,6 +205,7 @@ export default function App() {
             <Route path="/forecasting" element={<ProtectedRoute><Forecasting /></ProtectedRoute>} />
             <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+            <Route path="/tax" element={<ProtectedRoute><TaxReport /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           </Routes>
         </BrowserRouter>

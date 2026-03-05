@@ -42,8 +42,39 @@ export default function Transactions() {
   const [uploadResult, setUploadResult] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
   const [clearingMock, setClearingMock] = useState(false);
+  const [autoTaxing, setAutoTaxing] = useState(false);
+  const [editingTax, setEditingTax] = useState(null);
   const fileInputRef = useRef(null);
   const pdfInputRef = useRef(null);
+
+  const IRS_CATEGORIES = [
+    "Advertising", "Car & Truck", "Commissions & Fees", "Contract Labor",
+    "Insurance", "Interest", "Legal & Professional", "Meals (50%)",
+    "Office Expenses", "Rent/Lease", "Repairs & Maintenance", "Supplies",
+    "Taxes & Licenses", "Travel", "Utilities", "Wages", "Other Business",
+    "Not Deductible",
+  ];
+
+  const autoCategorizeTax = async () => {
+    setAutoTaxing(true);
+    try {
+      await api.post("/transactions/auto-tax");
+      fetchTransactions();
+      setUploadResult({ success: true, inserted: 0, skipped: 0, _clearMsg: "Tax categories auto-assigned by AI." });
+    } catch {
+      setUploadResult({ success: false, message: "Tax categorization failed" });
+    } finally {
+      setAutoTaxing(false);
+    }
+  };
+
+  const updateTax = async (id, tax_category, is_deductible) => {
+    try {
+      await api.put(`/transactions/${id}/tax`, { tax_category, is_deductible });
+      setTransactions((prev) => prev.map((t) => t.id === id ? { ...t, tax_category, is_deductible } : t));
+    } catch { /* silent */ }
+    setEditingTax(null);
+  };
 
   const fetchTransactions = () => {
     api.get("/transactions")
@@ -196,6 +227,13 @@ export default function Transactions() {
             {uploading ? "Uploading..." : "Upload CSV"}
           </button>
           <button
+            onClick={autoCategorizeTax}
+            disabled={autoTaxing || uploading || uploadingPdf}
+            className="bg-white border border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 text-indigo-600 text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            {autoTaxing ? "Categorizing..." : "🧾 Auto-Tax"}
+          </button>
+          <button
             onClick={() => pdfInputRef.current.click()}
             disabled={uploading || uploadingPdf}
             className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
@@ -280,6 +318,7 @@ export default function Transactions() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Date</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Description</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Category</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Tax (IRS)</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Account</th>
                 <th className="text-right px-4 py-3 font-semibold text-gray-600">Amount</th>
               </tr>
@@ -295,6 +334,33 @@ export default function Transactions() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${CATEGORY_COLORS[t.category] || "bg-gray-100 text-gray-600"}`}>
                       {t.category || "—"}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {editingTax === t.id ? (
+                      <select
+                        autoFocus
+                        defaultValue={t.tax_category || ""}
+                        onBlur={(e) => updateTax(t.id, e.target.value || null, e.target.value !== "Not Deductible" && e.target.value !== "")}
+                        onChange={(e) => updateTax(t.id, e.target.value || null, e.target.value !== "Not Deductible" && e.target.value !== "")}
+                        className="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white"
+                      >
+                        <option value="">— none —</option>
+                        {IRS_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    ) : (
+                      <button
+                        onClick={() => setEditingTax(t.id)}
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          t.tax_category
+                            ? t.is_deductible
+                              ? "bg-green-100 text-green-700"
+                              : "bg-gray-100 text-gray-500"
+                            : "bg-gray-50 text-gray-300 border border-dashed border-gray-200"
+                        }`}
+                      >
+                        {t.tax_category || "+ Add"}
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{t.account}</td>
                   <td className={`px-4 py-3 text-right font-semibold ${t.amount >= 0 ? "text-green-600" : "text-red-500"}`}>

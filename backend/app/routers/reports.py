@@ -94,6 +94,47 @@ async def export_summary(
     )
 
 
+@router.get("/tax")
+async def export_tax_report(
+    year: int = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export tax summary PDF grouped by IRS Schedule C category."""
+    from sqlalchemy import extract
+    from app.services.report_service import generate_tax_report_pdf
+
+    query = select(Transaction).where(
+        Transaction.user_id == current_user.id,
+        Transaction.is_deductible == True,
+    )
+    if year:
+        query = query.where(extract("year", Transaction.date) == year)
+
+    result = await db.execute(query)
+    txns = result.scalars().all()
+
+    from collections import defaultdict
+    by_category: dict = defaultdict(float)
+    for t in txns:
+        cat = t.tax_category or "Other Business"
+        by_category[cat] += abs(t.amount)
+
+    tax_data = {
+        "year": year,
+        "total_deductible": round(sum(by_category.values()), 2),
+        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda x: -x[1])},
+    }
+
+    data = generate_tax_report_pdf(tax_data, year=year)
+    filename = f"tax-report-{year or 'all'}.pdf"
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/send-now")
 async def send_report_now(
     current_user: User = Depends(get_current_user),

@@ -47,6 +47,7 @@ export default function Dashboard() {
     try { return JSON.parse(localStorage.getItem("dismissedAnomalies") || "[]"); } catch { return []; }
   });
   const [budgets, setBudgets] = useState([]);
+  const [taxSummary, setTaxSummary] = useState(null);
 
   useEffect(() => {
     api.get("/transactions/summary")
@@ -65,6 +66,10 @@ export default function Dashboard() {
 
     api.get("/budgets")
       .then((res) => setBudgets(res.data))
+      .catch(() => {});
+
+    api.get(`/transactions/tax-summary?year=${new Date().getFullYear()}`)
+      .then((res) => setTaxSummary(res.data))
       .catch(() => {});
   }, []);
 
@@ -245,6 +250,33 @@ export default function Dashboard() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tax Summary */}
+      {taxSummary && taxSummary.total_deductible > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🧾</span>
+              <h2 className="text-base font-semibold text-gray-700">Tax Deductibles — {new Date().getFullYear()}</h2>
+            </div>
+            <a href="/tax" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">View full report →</a>
+          </div>
+          <div className="flex items-center gap-4 mb-3">
+            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2">
+              <p className="text-xs text-green-600 font-medium">Total Deductible</p>
+              <p className="text-xl font-bold text-green-700">{currencySymbol}{fmt(taxSummary.total_deductible)}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {Object.entries(taxSummary.by_category || {}).slice(0, 6).map(([cat, amt]) => (
+              <div key={cat} className="bg-gray-50 rounded-lg px-3 py-2">
+                <p className="text-xs text-gray-500 truncate">{cat}</p>
+                <p className="text-sm font-semibold text-gray-700">{currencySymbol}{fmt(amt)}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -163,6 +163,87 @@ def generate_summary_pdf(summary: dict) -> bytes:
     return buffer.read()
 
 
+def generate_tax_report_pdf(tax_data: dict, year: int = None) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        rightMargin=inch, leftMargin=inch,
+        topMargin=0.75 * inch, bottomMargin=0.75 * inch,
+    )
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title = f"Tax Summary Report{f' — {year}' if year else ''}"
+    elements.append(Paragraph(title, styles["Title"]))
+    elements.append(Paragraph(
+        f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  |  Based on IRS Schedule C categories",
+        styles["Normal"],
+    ))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # Total deductible KPI
+    total = tax_data.get("total_deductible", 0)
+    kpi_data = [
+        ["Total Deductible Expenses", f"${total:,.2f}"],
+    ]
+    kpi_table = Table(kpi_data, colWidths=[3.5 * inch, 2 * inch])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#dcfce7")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#166534")),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 12),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#bbf7d0")),
+    ]))
+    elements.append(kpi_table)
+    elements.append(Spacer(1, 0.25 * inch))
+
+    # By category breakdown
+    elements.append(Paragraph("Deductible Expenses by IRS Category", styles["Heading2"]))
+    elements.append(Spacer(1, 0.1 * inch))
+
+    by_cat = tax_data.get("by_category", {})
+    rows = [["IRS Category", "Deductible Amount", "Note"]]
+    for cat, amount in by_cat.items():
+        note = "50% deductible" if cat == "Meals (50%)" else ""
+        rows.append([cat, f"${amount:,.2f}", note])
+
+    cat_table = Table(rows, colWidths=[2.5 * inch, 1.8 * inch, 1.8 * inch], repeatRows=1)
+    cat_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4f46e5")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f3ff")]),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(cat_table)
+    elements.append(Spacer(1, 0.3 * inch))
+
+    disclaimer = ParagraphStyle("disclaimer", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6b7280"))
+    elements.append(Paragraph(
+        "⚠ For informational purposes only. This report does not constitute tax advice. "
+        "Please consult a qualified tax professional before filing.",
+        disclaimer,
+    ))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.read()
+
+
 def generate_summary_excel(summary: dict) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment

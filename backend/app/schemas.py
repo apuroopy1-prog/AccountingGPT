@@ -86,8 +86,15 @@ class TransactionOut(BaseModel):
     category: Optional[str]
     merchant: Optional[str]
     account: Optional[str]
+    tax_category: Optional[str] = None
+    is_deductible: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class TaxUpdate(BaseModel):
+    tax_category: Optional[str] = None
+    is_deductible: bool = False
 
 
 # Invoice

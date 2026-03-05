@@ -1,0 +1,22 @@
+services:
+  db:
+    ports: []  # Don't expose DB port publicly
+
+  redis:
+    ports: []  # Don't expose Redis port publicly
+
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    restart: always
+
+  celery_worker:
+    restart: always
+
+  celery_beat:
+    restart: always
+
+  frontend:
+    restart: always

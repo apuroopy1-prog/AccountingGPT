@@ -31,6 +31,8 @@ class Transaction(Base):
     category: Mapped[str] = mapped_column(String(100), nullable=True)
     merchant: Mapped[str] = mapped_column(String(255), nullable=True)
     account: Mapped[str] = mapped_column(String(100), nullable=True)
+    tax_category: Mapped[str] = mapped_column(String(100), nullable=True)
+    is_deductible: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship(back_populates="transactions")
 

@@ -11,7 +11,7 @@ from sqlalchemy import select, delete
 
 from app.database import get_db
 from app.models import User, Transaction
-from app.schemas import TransactionOut
+from app.schemas import TransactionOut, TaxUpdate
 from app.auth import get_current_user
 from app.services.plaid_mock import generate_mock_transactions
 
@@ -372,6 +372,141 @@ async def transaction_summary(
         "net": round(income - expenses, 2),
         "transaction_count": len(txns),
         "monthly_breakdown": dict(sorted(monthly.items())[-6:]),
+    }
+
+
+IRS_TAX_CATEGORIES = [
+    "Advertising", "Car & Truck", "Commissions & Fees", "Contract Labor",
+    "Insurance", "Interest", "Legal & Professional", "Meals (50%)",
+    "Office Expenses", "Rent/Lease", "Repairs & Maintenance", "Supplies",
+    "Taxes & Licenses", "Travel", "Utilities", "Wages", "Other Business",
+    "Not Deductible",
+]
+
+
+@router.post("/auto-tax", response_model=dict)
+async def auto_categorize_tax(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use Claude AI to assign IRS Schedule C tax categories to all transactions."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI service not configured")
+
+    result = await db.execute(
+        select(Transaction).where(Transaction.user_id == current_user.id)
+    )
+    txns = result.scalars().all()
+    if not txns:
+        return {"updated": 0}
+
+    txn_list = [
+        {"id": t.id, "description": t.description, "category": t.category or "", "amount": t.amount}
+        for t in txns
+    ]
+
+    import json
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+
+    categories_str = ", ".join(IRS_TAX_CATEGORIES)
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4096,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Classify each transaction with an IRS Schedule C tax category.\n"
+                f"Categories: {categories_str}\n"
+                f"Rules: negative amounts are expenses (potentially deductible), positive are income (Not Deductible).\n"
+                f"Meals are 50% deductible. Personal expenses = Not Deductible.\n"
+                f"Return a JSON array of objects: {{\"id\": int, \"tax_category\": str, \"is_deductible\": bool}}\n"
+                f"Return ONLY the JSON array.\n\nTransactions:\n{json.dumps(txn_list)}"
+            ),
+        }],
+    )
+
+    try:
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rstrip("`").strip()
+        categorized = json.loads(raw)
+        if not isinstance(categorized, list):
+            raise ValueError
+    except Exception:
+        raise HTTPException(status_code=422, detail="AI could not categorize transactions")
+
+    id_map = {t.id: t for t in txns}
+    updated = 0
+    for item in categorized:
+        txn = id_map.get(item.get("id"))
+        if txn:
+            txn.tax_category = item.get("tax_category")
+            txn.is_deductible = bool(item.get("is_deductible", False))
+            updated += 1
+
+    await db.commit()
+    return {"updated": updated}
+
+
+@router.put("/{transaction_id}/tax", response_model=TransactionOut)
+async def update_transaction_tax(
+    transaction_id: int,
+    tax_data: TaxUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually override tax category and deductible flag for a transaction."""
+    result = await db.execute(
+        select(Transaction).where(
+            Transaction.id == transaction_id,
+            Transaction.user_id == current_user.id,
+        )
+    )
+    txn = result.scalar_one_or_none()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    txn.tax_category = tax_data.tax_category
+    txn.is_deductible = tax_data.is_deductible
+    await db.commit()
+    await db.refresh(txn)
+    return txn
+
+
+@router.get("/tax-summary")
+async def tax_summary(
+    year: int = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return deductible expense totals grouped by IRS tax category."""
+    from collections import defaultdict
+    query = select(Transaction).where(
+        Transaction.user_id == current_user.id,
+        Transaction.is_deductible == True,
+    )
+    if year:
+        from sqlalchemy import extract
+        query = query.where(extract("year", Transaction.date) == year)
+
+    result = await db.execute(query)
+    txns = result.scalars().all()
+
+    by_category: dict = defaultdict(float)
+    for t in txns:
+        cat = t.tax_category or "Other Business"
+        by_category[cat] += abs(t.amount)
+
+    total = sum(by_category.values())
+    return {
+        "year": year,
+        "total_deductible": round(total, 2),
+        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items(), key=lambda x: -x[1])},
     }
 
 
